@@ -1,0 +1,317 @@
+#Project2  Employee Review of Comment Analysis
+
+#DESCRIPTION
+
+#Objective: To use Hive features for data analysis and sharing the actionable insights into the HR team for taking corrective actions.
+
+#Problem Statement: The HR team is surfing social media to gather current and ex-employee feedback or sentiments.
+#This information gathered will be used to derive actionable insights and take corrective actions to improve the employer-employee relationship. The data is web-scraped from Glassdoor and contains detailed reviews of 67K employees from Google, Amazon, Facebook, Apple, Microsoft, and Netflix.
+
+#Domain: Human Resource
+
+#Analysis to be done: Exploratory analysis, to determine features and relationships impacting employee satisfaction and derive actionable insights by learning from the historical data
+
+################################################################################
+
+
+desc `perumaldb`.`employee_review_data_orig`; -> created and imported using hue
+
+
+###Question*********************************************
+****Create a hive table partitioned by country and bucketed by year and also load the review.csv file.
+****Note: Ensure that the right hive environment variable is set for bucket insert.
+*******************************************************
+
+create table employee_review_data_temp1
+(
+   index int,company string,country string,year int,
+   `job-title` string,summary string,pros string, cons string,
+   `overall-ratings` int,`work-balance-stars` int,`culture-values-stars` int,
+   `carrer-opportunities-stars` int,`comp-benefit-stars` int,`senior-mangemnet-stars` int
+)
+   row format delimited
+   fields terminated by '|'
+   stored as textfile;
+
+create table employee_review_data_temp2
+(
+   index int,company string,country string,year int,
+   `job-title` string,summary string,pros string, cons string,
+   `overall-ratings` int,`work-balance-stars` int,`culture-values-stars` int,
+   `carrer-opportunities-stars` int,`comp-benefit-stars` int,`senior-mangemnet-stars` int
+)
+   row format delimited
+   fields terminated by '|'
+   stored as textfile;
+
+ insert into table employee_review_data_temp1 select * from(
+select `index` as `index`,company as company,
+case when length(regexp_extract(location,'(;) (.*)',2)) = 2 THEN "United States"
+ELSE substr(location,instr(location,'\(')+1) END as country,regexp_extract(dates,'(;) (.*)',2) as year,
+`job-title` as `job-title`,summary as summary,pros as pros,cons as cons,
+`overall-ratings` as `overall-ratings`,`work-balance-stars` as `work-balance-stars`,
+`culture-values-stars` as `culture-values-stars`,
+`carrer-opportunities-stars` as `carrer-opportunities-stars`,
+`comp-benefit-stars` as `comp-benefit-stars`,
+`senior-mangemnet-stars` as `senior-mangemnet-stars` from 
+`perumaldb`.`employee_review_data_orig` where location != 'none')dual;
+
+ insert into table employee_review_data_temp2 select `index`,company,
+ translate(country,'\)',''),year,
+`job-title`,summary,pros,cons,`overall-ratings`,`work-balance-stars`,`culture-values-stars`,
+`carrer-opportunities-stars`,`comp-benefit-stars`,`senior-mangemnet-stars` from 
+`perumaldb`.`employee_review_data_temp1`;
+
+
+set hive.support.concurrency=true;
+set hive.enforce.bucketing=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
+set hive.compactor.initiator.on=true;
+set hive.compactor.worker.threads=2;
+SET hive.tez.bucket.pruning=true
+SET hive.optimize.sort.dynamic.partition=true
+
+create table employee_review_data
+(
+   index int,company string,year int,
+   `job-title` string,summary string,pros string, cons string,
+   `overall-ratings` int,`work-balance-stars` int,`culture-values-stars` int,
+   `carrer-opportunities-stars` int,`comp-benefit-stars` int,`senior-mangemnet-stars` int
+)
+   PARTITIONED BY (country string)
+ CLUSTERED BY (year) 
+INTO 10 BUCKETS
+   row format delimited
+   fields terminated by '|'
+   stored as textfile;
+
+ insert into table employee_review_data PARTITION(country) select * from(
+select `index` as `index`,company as company,year as year,
+`job-title` as `job-title`,summary as summary,pros as pros,cons as cons,
+`overall-ratings` as `overall-ratings`,`work-balance-stars` as `work-balance-stars`,
+`culture-values-stars` as `culture-values-stars`,
+`carrer-opportunities-stars` as `carrer-opportunities-stars`,
+`comp-benefit-stars` as `comp-benefit-stars`,
+`senior-mangemnet-stars` as `senior-mangemnet-stars`,country as country from 
+`perumaldb`.`employee_review_data_temp2`)dual;
+
+
+###Question************************************************ 
+*****Impute the missing value (none) for all rating columns with a numerical value between 0 and 5.
+*****Note: For imputation, calculate the median for each of the 5 rating fields and create a new table.
+*************************************************************
+
+select percentile(cast(`work-balance-stars` as BIGINT), 0.5) from employee_review_data;4
+select percentile(cast(`culture-values-stars` as BIGINT), 0.5) from employee_review_data;4
+select percentile(cast(`carrer-opportunities-stars` as BIGINT), 0.5) from employee_review_data;4
+select percentile(cast(`comp-benefit-stars` as BIGINT), 0.5) from employee_review_data;4
+select percentile(cast(`senior-mangemnet-stars` as BIGINT), 0.5) from employee_review_data;3
+
+create table employee_review_data1
+(
+   index int,company string,year int,
+   `job-title` string,summary string,pros string, cons string,
+   `overall-ratings` int,`work-balance-stars` int,`culture-values-stars` int,
+   `carrer-opportunities-stars` int,`comp-benefit-stars` int,`senior-mangemnet-stars` int
+)
+   PARTITIONED BY (country string)
+ CLUSTERED BY (year) 
+INTO 10 BUCKETS
+   row format delimited
+   fields terminated by '|'
+   stored as textfile;
+   
+
+  insert into table employee_review_data1 PARTITION(country) select * from(
+select `index` as `index`,company as company,year as year,
+`job-title` as `job-title`,summary as summary,pros as pros,cons as cons,
+`overall-ratings` as `overall-ratings`,
+coalesce(`work-balance-stars`,4)
+ as `work-balance-stars`,
+coalesce(`culture-values-stars`,4)
+ as `culture-values-stars`,
+coalesce(`carrer-opportunities-stars`,4)
+ as `carrer-opportunities-stars`,
+coalesce(`comp-benefit-stars`,4)
+ as `comp-benefit-stars`,
+coalesce(`senior-mangemnet-stars`,3)
+ as `senior-mangemnet-stars`,
+country as country from 
+`perumaldb`.`employee_review_data_temp2`
+)dual;
+
+#####Question*********************************
+Using the over-all rating fields display trend:
+Globally by company
+Identify trends at 25%, 50%, 75%
+      2. Globally by company per year
+
+Identify trends at 25%, 50%, 75%
+      3. By company by country (Identify trends for each company by country
+
+Identify trends at 25%, 50%, 75%
+***************************************************
+
+select company,percentile_approx(`overall-ratings`,array(0.25,0.50,0.75)) 
+ from employee_review_data1 group by company;
+
+select company,year,percentile_approx(`overall-ratings`,array(0.25,0.50,0.75)) 
+ from employee_review_data1 group by company,year;
+
+select company,country,percentile_approx(`overall-ratings`,array(0.25,0.50,0.75)) 
+ from employee_review_data1 group by company,country;
+
+
+
+####Question*************************************
+Display the impact of employee status on rating a company using the overall-ratings field by the company by year.
+****************************************************
+
+ select company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',1) as EmpoyeeStatus,
+ count(regexp_extract(`job-title`,'(.*Employee -) (.*)',1)) as `Count of Employees rated >= 4` 
+ from employee_review_data1 
+  where `overall-ratings` >= 4
+  and year != 0 and year is not NULL
+  group by  company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',1);
+
+ select company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',1) as EmpoyeeStatus,
+ count(regexp_extract(`job-title`,'(.*Employee -) (.*)',1)) as `Count of Employees rated < 4` 
+ from employee_review_data1 
+  where `overall-ratings` < 4
+  and year != 0 and year is not NULL
+  group by  company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',1);
+
+
+#########Question*******************************************
+Display the impact of job role on rating a company using the overall-ratings field by the company by year.
+*************************************************************
+
+ select company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',2) as JobRoles,
+ count(regexp_extract(`job-title`,'(.*Employee -) (.*)',2)) as `Count of JobRoles rated < 4` 
+ from employee_review_data1 
+  where `overall-ratings` < 4
+  and year != 0 and year is not NULL
+  group by  company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',2);
+
+ select company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',2) as JobRoles,
+ count(regexp_extract(`job-title`,'(.*Employee -) (.*)',2)) as `Count of JobRoles rated >= 4` 
+ from employee_review_data1 
+  where `overall-ratings` >= 4
+  and year != 0 and year is not NULL and
+regexp_extract(`job-title`,'(.*Employee -) (.*)',2) != '-'
+  group by  company,year,regexp_extract(`job-title`,'(.*Employee -) (.*)',2);
+
+
+select company, percentile(cast(`overall-ratings` as BIGINT), 0.5) as `OverallRatings-Median`, 
+percentile(cast(`work-balance-stars` as BIGINT), 0.5) as `WorkBalance-Median`,
+percentile(cast(`culture-values-stars` as BIGINT), 0.5) as `CultureValue-Median`,
+   percentile(cast(`carrer-opportunities-stars` as BIGINT), 0.5) as `CareerOppor-Median`,
+percentile(cast(`comp-benefit-stars` as BIGINT), 0.5) as `CompBenefit-Median`,
+percentile(cast(`senior-mangemnet-stars` as BIGINT), 0.5) as `SeniorMgmnt-Median`
+from employee_review_data1
+group by company;
+
+
+
+###############Question*************************************
+Display the relationship between the overall rating score vs. the rest of the rating field scores by company. Also, document your findings.
+Overall-ratings
+Versus
+
+Work-balance stars
+Culture values stars
+Career opportunities-stars
+Comp-benefit-stars
+Senior-management-stars
+*************************************************************
+
+select `overall-ratings`,`work-balance-stars`,
+count(`work-balance-stars`) as COUNTofWorkBalanceStars
+from employee_review_data1
+where `overall-ratings` is NOT NULL
+group by `overall-ratings`,`work-balance-stars`;
+
+number of employees who rated the same for both overall and work balance is high.
+So majority of people have given the same rating level to both overall and work balance.
+
+
+select `overall-ratings`,`culture-values-stars`,
+count(`culture-values-stars`) as COUNTofCultureValueStars
+from employee_review_data1
+where `overall-ratings` is NOT NULL
+group by `overall-ratings`,`culture-values-stars`;
+
+number of employees who rated the same for both overall and work balance is high.
+So majority of people have given the same rating level to both overall and Culture Value.
+
+
+select `overall-ratings`,`carrer-opportunities-stars`,
+count(`carrer-opportunities-stars`) as COUNTofCareerOpporStars
+from employee_review_data1
+where `overall-ratings` is NOT NULL
+group by `overall-ratings`,`carrer-opportunities-stars`;
+
+number of employees who rated the same for both overall and work balance is high.
+So majority of people have given the same rating level to both overall and Career Opportunities.
+
+
+select `overall-ratings`,`comp-benefit-stars`,
+count(`comp-benefit-stars`) as COUNTofCompBenefitStars
+from employee_review_data1
+where `overall-ratings` is NOT NULL
+group by `overall-ratings`,`comp-benefit-stars`;
+
+number of employees who rated the same for both overall and work balance is slightly high, but seeing an increase in difference.
+Still a slight majority of people have voted same for both overall and comp benefits, but there is a good number of people
+who gave different ratings for comp benefit and overall.
+
+
+select `overall-ratings`,`senior-mangemnet-stars`,
+count(`senior-mangemnet-stars`) as COUNTofSeniorMgmtStars
+from employee_review_data1
+where `overall-ratings` is NOT NULL
+group by `overall-ratings`,`senior-mangemnet-stars`;
+
+number of employees who rated the same for both overall and senior mgmnt is slightly high, but seeing an increase in difference.
+Still a slight majority of people have voted same for both overall and senior mgmnt, but there is a good number of people
+who gave different ratings for senior mgmgnt and  overall.
+
+
+##########Question*********************************************
+Document your findings for the following:
+a) Which corporation is worth working for
+b) Classification of satisfied or unsatisfied employees
+*************************************************************
+
+select count(`job-title`)
+from employee_review_data1
+where `overall-ratings` >= 3 and 
+length(pros) > length(cons);
+Approx 18K employees are satisfied.
+
+select count(`job-title`)
+from employee_review_data1
+where `overall-ratings` <= 3 and 
+length(cons) > length(pros);
+Approx 11K employees are not satisfied.
+
+
+As per below data, Amazon leads other companies from customer ratings.
+select company,count(*) from employee_review_data1
+where lower(summary) like '%best company%' or 
+summary like '%excellent%' or
+summary like '%nice place%' or
+summary like '%best place%' or
+summary like '%amazing%'
+group by company;
+
+
+select company,count(*) from employee_review_data1
+where `overall-ratings` >= 4
+group by company;
+
+select company,count(*) from employee_review_data1
+where length(pros) > length(cons)
+group by company;
+
